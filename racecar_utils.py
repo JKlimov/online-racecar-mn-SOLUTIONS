@@ -51,73 +51,6 @@ resize_height = 480
 #############################
 
 # Starter code class that handles the fancy stuff. No need to modify this!
-cap = None
-released = True
-class Racecar:
-    SCAN_TOPIC = "/scan"
-    IMAGE_TOPIC = "/camera"
-    DRIVE_TOPIC = "/drive"
-    
-    def __init__(self):
-        self.sub_scan = rospy.Subscriber(self.SCAN_TOPIC, LaserScan, callback=self.scan_callback)
-        self.sub_image = rospy.Subscriber(self.IMAGE_TOPIC, Image, callback=self.image_callback)
-        self.pub_drive = rospy.Publisher(self.DRIVE_TOPIC, AckermannDriveStamped, queue_size=1)
-        self.last_drive = AckermannDriveStamped()
-    
-    def image_callback(self, msg):
-        self.last_image = msg.data
-        
-    def show_last_image(self):
-        im = np.fromstring(self.last_image,dtype=np.uint8).reshape((480,-1,3))[...,::-1]
-        return im
-        
-    def scan_callback(self, msg):
-        self.last_scan = msg.ranges
-        
-    def drive(self, speed, angle):
-        msg = AckermannDriveStamped()
-        msg.drive.speed = speed
-        msg.drive.steering_angle = angle*(0.25/20)  # thresholded at 0.25 radians, approx 20 degrees
-        self.last_drive = msg
-    
-    def stop(self):
-        self.drive(0, 0) #self.last_drive.drive.steering_angle)
-    
-    def look(self):
-        return self.last_image
-    
-    def scan(self):
-        return self.last_scan
-    
-    def run(self, func, limit=10):
-        global cap, released
-        r = rospy.Rate(60)
-        t = rospy.get_time()
-        if not released:
-            cap.release()
-            released = True
-        cap = cv2.VideoCapture(video_port)
-        resize_cap(cap, resize_height, resize_width)
-        released = False
-        while rospy.get_time() - t < limit and not rospy.is_shutdown():
-            frame = None
-            try:
-                frame = cap.read()[1]
-            except:
-                print('Video feed is in use. Please run again or restart kernel.')
-            if frame is None:
-                print('Video feed is in use. Please run again or restart kernel.')
-                break
-            else:
-                func(cap.read()[1])
-                self.pub_drive.publish(self.last_drive)
-            r.sleep()
-        cap.release()
-        released = True
-        print("END OF ROSPY RUN")
-        self.stop()
-        self.pub_drive.publish(self.last_drive)
-        time.sleep(0.1)
 
 #############################
 #### General Display
@@ -147,54 +80,35 @@ def resize_cap(cap, width, height):
 #### Identify Cone
 #############################
 
-def show_video_temp(func, time_limit, rc):
-    global display, current_display_id
-    display = IPython.display.display('', display_id=current_display_id)
-    current_display_id += 1
-    
-    rc.run(func, time_limit)
-
-def show_video(func, time_limit = 10):
+def show_video(func, time_limit = 10, use_both_frames = False, show_video = True):
     global current_display_id
     display = IPython.display.display('', display_id=current_display_id)
     current_display_id += 1
     
-    # Configure depth and color streams
-    pipeline = rs.pipeline()
-    config = rs.config()
-    config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)
-    config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
+    def display_frames(frames):
+        depth_frame = frames.get_depth_frame()
+        color_frame = frames.get_color_frame()
+        if not color_frame or not depth_frame:
+            return
+        
+        # Convert image to numpy arrays
+        depth_image = np.asanyarray(depth_frame.get_data())
+        color_image = np.asanyarray(color_frame.get_data())
+        color_image = cv2.cvtColor(color_image, cv2.COLOR_BGR2RGB)
 
-    # Start streaming
-    pipeline.start(config)
-
-    try:
-        start = time.time()
-        while time.time() - start < time_limit:
-            # Wait for a coherent pair of frames: depth and color
-            frames = pipeline.wait_for_frames()
-            depth_frame = frames.get_depth_frame()
-            color_frame = frames.get_color_frame()
-            if not color_frame or not depth_frame:
-                continue
-
-            # Convert image to numpy arrays
-            depth_image = np.asanyarray(depth_frame.get_data())
-            color_image = np.asanyarray(color_frame.get_data())
-            color_image = cv2.cvtColor(color_image, cv2.COLOR_BGR2RGB)
-
+        if use_both_frames:
             processed_img = func(color_image, depth_image)
-            
-            
+        else:
+            processed_img = func(color_image)
 
-            #f = BytesIO()
-            #PIL.Image.fromarray(processed_img).save(f, 'jpeg')
-            #img = IPython.display.Image(data=f.getvalue())
-            #display.update(img)
-            #time.sleep(0.2)
-    finally:
-        # Stop streaming
-        pipeline.stop()
+        if show_video:
+            f = BytesIO()
+            PIL.Image.fromarray(processed_img).save(f, 'jpeg')
+            img = IPython.display.Image(data=f.getvalue())
+            display.update(img)
+            time.sleep(0.2)
+        
+    withRealSenseFrames(display_frames, time_limit)
 
 def show_image(func):
     global display, current_display_id
@@ -223,57 +137,69 @@ def show_picture(img):
 #### HSV Select
 #############################
 
+def withRealSenseFrames(frameProcessor, limit = None):
+    pipeline = rs.pipeline()
+    config = rs.config()
+    config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)
+    config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
+
+    # Start streaming
+    pipeline.start(config)
+
+    try:
+        if isinstance(limit, int):
+            start = time.time()
+            while time.time() - start < limit:
+                # Wait for a coherent pair of frames: depth and color
+                frames = pipeline.wait_for_frames()
+                frameProcessor(frames)
+        else:
+            while True:
+                # Wait for a coherent pair of frames: depth and color
+                frames = pipeline.wait_for_frames()
+                frameProcessor(frames)
+    finally:
+        # Stop streaming
+        pipeline.stop()
+
 # Mask and display video
 def hsv_select_live(limit = 10, fps = 5):
     global current_display_id
     display = IPython.display.display('', display_id=current_display_id)
     current_display_id += 1
-    
+
     # Create sliders
     h = widgets.IntRangeSlider(value=[0, 179], min=0, max=179, description='Hue:', continuous_update=True, layout=widgets.Layout(width='100%'))
     s = widgets.IntRangeSlider(value=[0, 255], min=0, max=255, description='Saturation:', continuous_update=True, layout=widgets.Layout(width='100%'))
     v = widgets.IntRangeSlider(value=[0, 255], min=0, max=255, description='Value:', continuous_update=True, layout=widgets.Layout(width='100%'))
     display.update(h)
     display.update(s)
-    display.update(v)   
-    
+    display.update(v)
+
+    def processFrame(frames):
+        color_frame = frames.get_color_frame()
+        if not color_frame:
+            return
+
+        # Convert image to numpy arrays
+        color_image = np.asanyarray(color_frame.get_data())
+        color_image = cv2.cvtColor(color_image, cv2.COLOR_BGR2RGB)
+
+        hsv_min = (h.value[0], s.value[0], v.value[0])
+        hsv_max = (h.value[1], s.value[1], v.value[1])
+        img_hsv = cv2.cvtColor(color_image, cv2.COLOR_RGB2HSV)
+        mask = cv2.inRange(img_hsv, hsv_min, hsv_max)
+        img_masked = cv2.bitwise_and(color_image, color_image, mask = mask)
+
+        f = BytesIO()
+        PIL.Image.fromarray(img_masked).save(f, 'jpeg')
+        img = IPython.display.Image(data=f.getvalue())
+        display.update(img)
+        time.sleep(1.0 / fps)
+
     def show_masked_video():  
-        # Configure depth and color streams
-        pipeline = rs.pipeline()
-        config = rs.config()
-        config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
+        withRealSenseFrames(processFrame, limit)
 
-        # Start streaming
-        pipeline.start(config)
-
-        try:
-            start = time.time()
-            while time.time() - start < limit:
-                # Wait for a coherent pair of frames: depth and color
-                frames = pipeline.wait_for_frames()
-                color_frame = frames.get_color_frame()
-                if not color_frame:
-                    continue
-
-                # Convert image to numpy arrays
-                color_image = np.asanyarray(color_frame.get_data())
-                color_image = cv2.cvtColor(color_image, cv2.COLOR_BGR2RGB)
-
-                hsv_min = (h.value[0], s.value[0], v.value[0])
-                hsv_max = (h.value[1], s.value[1], v.value[1])
-                img_hsv = cv2.cvtColor(color_image, cv2.COLOR_RGB2HSV)
-                mask = cv2.inRange(img_hsv, hsv_min, hsv_max)
-                img_masked = cv2.bitwise_and(color_image, color_image, mask = mask)
-                
-                f = BytesIO()
-                PIL.Image.fromarray(img_masked).save(f, 'jpeg')
-                img = IPython.display.Image(data=f.getvalue())
-                display.update(img)
-                time.sleep(1.0 / fps)
-        finally:
-            # Stop streaming
-            pipeline.stop()
-    
     # Open video on new thread (needed for slider update)
     hsv_thread = threading.Thread(target=show_masked_video)
     hsv_thread.start()
