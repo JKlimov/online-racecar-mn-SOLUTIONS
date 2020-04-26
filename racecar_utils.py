@@ -152,8 +152,9 @@ def show_video(func, time_limit = 10, use_both_frames = False, show_video = True
     current_display_id += 1
     
     def display_frames(color_image, depth_image):
+        depth_colormap = cv2.applyColorMap(cv2.convertScaleAbs(depth_image, alpha=0.03), cv2.COLORMAP_JET)
         if use_both_frames:
-            processed_img = func(color_image, depth_image)
+            processed_img = func(color_image, depth_colormap)
         else:
             processed_img = func(color_image)
 
