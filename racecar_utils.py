@@ -60,15 +60,14 @@ def withDriving(callback):
     qos_profile.durability = QoSDurabilityPolicy.RMW_QOS_POLICY_DURABILITY_VOLATILE
     publisher = rc.create_publisher(AckermannDriveStamped, '/drive', qos_profile)
     
-    def drive_function(speed, angle):
+    def drive(speed, angle):
         msg = AckermannDriveStamped()
         msg.drive.speed = speed
         msg.drive.steering_angle = angle
-        print(speed)
         publisher.publish(msg)
         
-    callback(drive_function)
-    # Send an empty message
+    callback(drive)
+    # Send an empty message, whch will stop the car
     publisher.publish(AckermannDriveStamped())
 
 #############################
@@ -165,7 +164,7 @@ def show_video(func, time_limit = 10, use_both_frames = False, show_video = True
             display.update(img)
             time.sleep(0.2)
         
-    withRealSenseImages(display_frames, {'width': 640, 'height': 480, 'depth': True}, time_limit)
+    withRealSenseImages(display_frames, {'width': 640, 'height': 480, 'depth': use_both_frames}, time_limit)
 
 def show_videox(func, time_limit = 10, use_both_frames = False, show_video = True):
 
