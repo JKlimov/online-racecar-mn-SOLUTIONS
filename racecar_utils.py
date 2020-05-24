@@ -150,12 +150,18 @@ def show_video(func, time_limit = 10, use_both_frames = False, show_video = True
     display = IPython.display.display('', display_id=current_display_id)
     current_display_id += 1
     
-    def display_frames(color_image, depth_image):
+    def display_frame(color_image):
+        processed_img = func(color_image)
+        if show_video:
+            f = BytesIO()
+            PIL.Image.fromarray(processed_img).save(f, 'jpeg')
+            img = IPython.display.Image(data=f.getvalue())
+            display.update(img)
+            time.sleep(0.2)
+    
+    def display_both_frames(color_image, depth_image):
         depth_colormap = cv2.applyColorMap(cv2.convertScaleAbs(depth_image, alpha=0.03), cv2.COLORMAP_JET)
-        if use_both_frames:
-            processed_img = func(color_image, depth_colormap)
-        else:
-            processed_img = func(color_image)
+        processed_img = func(color_image, depth_colormap)
 
         if show_video:
             f = BytesIO()
@@ -163,8 +169,11 @@ def show_video(func, time_limit = 10, use_both_frames = False, show_video = True
             img = IPython.display.Image(data=f.getvalue())
             display.update(img)
             time.sleep(0.2)
-        
-    withRealSenseImages(display_frames, {'width': 640, 'height': 480, 'depth': use_both_frames}, time_limit)
+            
+    if use_both_frames:
+        withRealSenseImages(display_both_frames, {'width': 640, 'height': 480, 'depth': use_both_frames}, time_limit)
+    else:
+        withRealSenseImages(display_frame, {'width': 640, 'height': 480, 'depth': use_both_frames}, time_limit)
 
 def show_videox(func, time_limit = 10, use_both_frames = False, show_video = True):
 
